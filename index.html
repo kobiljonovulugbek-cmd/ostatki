@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Остатки на складах</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+--bg:#f3f5f7; --surface:#ffffff; --ink:#18212b; --muted:#5f6b78; --line:#dde3ea;
+--accent:#1f5f8b; --accent-soft:#e3eef6; --warn:#a35c00; --warn-soft:#fdf0dc; --good:#2c7a4b;
+--font:"Golos Text", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+--bg:#11161c; --surface:#19212a; --ink:#e7edf3; --muted:#93a1b0; --line:#2a3542;
+--accent:#6fb0de; --accent-soft:#1d3346; --warn:#f0a94b; --warn-soft:#3a2a12; --good:#6cc492; color-scheme:dark;}}
+:root[data-theme="dark"]{
+--bg:#11161c; --surface:#19212a; --ink:#e7edf3; --muted:#93a1b0; --line:#2a3542;
+--accent:#6fb0de; --accent-soft:#1d3346; --warn:#f0a94b; --warn-soft:#3a2a12; --good:#6cc492; color-scheme:dark;}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--font);font-variant-numeric:tabular-nums}
+.wrap{max-width:860px;margin:0 auto;padding:16px 16px 48px;display:grid;gap:16px}
+h1{font-size:22px;margin:0;font-weight:700;text-wrap:balance}
+h2{font-size:15px;margin:0;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.total{font-size:26px;font-weight:700}
+.total small{display:block;font-size:13px;font-weight:400;color:var(--muted)}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;gap:4px}
+.card b{font-size:17px}
+.card .meta{color:var(--muted);font-size:13px}
+.card .sum{font-size:18px;font-weight:600}
+.card .np{color:var(--warn);font-size:13px}
+.search{position:sticky;top:0;z-index:5;background:var(--bg);padding:8px 0;display:grid;gap:10px}
+input[type=search],input[type=text],input[type=number],select{
+width:100%;font:inherit;font-size:17px;padding:12px 14px;border-radius:10px;border:1px solid var(--line);
+background:var(--surface);color:var(--ink)}
+input:focus,select:focus,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font:inherit;font-size:14px;padding:6px 12px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.chip.warn[aria-pressed="true"]{background:var(--warn);border-color:var(--warn)}
+.list{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.row{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:12px 14px;border-top:1px solid var(--line);cursor:pointer;width:100%;text-align:left;background:none;border-left:0;border-right:0;border-bottom:0;font:inherit;color:inherit}
+.row:first-child{border-top:0}
+.row:hover{background:var(--accent-soft)}
+.row.low{box-shadow:inset 4px 0 0 var(--warn)}
+.nm{font-weight:600;font-size:16px}
+.sub{color:var(--muted);font-size:13px}
+.qty{text-align:right;font-weight:700;font-size:16px}
+.price{text-align:right;color:var(--muted);font-size:13px}
+.price.none{color:var(--warn)}
+.pill{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;background:var(--accent-soft);color:var(--accent);margin-left:6px;font-weight:500}
+.empty{padding:20px;color:var(--muted);text-align:center}
+.foot{color:var(--muted);font-size:13px;padding:10px 14px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.panel[hidden]{display:none}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px;display:grid;gap:12px}
+.btn{font:inherit;font-weight:600;padding:11px 16px;border-radius:10px;border:1px solid var(--accent);background:var(--accent);color:var(--surface);cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent)}
+.btn.danger{background:transparent;border-color:var(--warn);color:var(--warn)}
+.btn:disabled{opacity:.5;cursor:default}
+.btns{display:flex;gap:10px;flex-wrap:wrap}
+.note{font-size:14px;color:var(--muted)}
+.msg{font-size:14px;padding:10px 12px;border-radius:8px;background:var(--accent-soft)}
+.msg.err{background:var(--warn-soft);color:var(--warn)}
+label{font-size:14px;font-weight:500;display:grid;gap:6px}
+.status{font-size:13px;color:var(--muted)}
+dialog{border:0;border-radius:14px;padding:0;width:min(420px,calc(100% - 32px));background:var(--surface);color:var(--ink)}
+dialog::backdrop{background:rgba(10,15,20,.5)}
+dialog form{padding:18px;display:grid;gap:12px}
+textarea{width:100%;min-height:160px;font:13px/1.4 var(--font);padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="top">
+<div><h1>Остатки на складах</h1><div class="status" id="status">Загрузка данных…</div></div>
+<div class="total" id="total"></div>
+</div>
+
+<div class="cards" id="cards"></div>
+
+<div class="search">
+<input type="search" id="q" placeholder="Размер: 40/20, 40х20 2, 32 1,5" autocomplete="off" inputmode="text">
+<div class="chips" id="chipsSklad"></div>
+<div class="chips" id="chipsTip"></div>
+</div>
+
+<div class="list" id="list"></div>
+
+<div class="panel" id="uploadPanel" hidden>
+<h2>Обновить остатки</h2>
+<div class="note">Загрузите Excel (.xlsx) или Word (.docx) с таблицей остатков. Данные выбранного склада заменятся новыми, другие склады не изменятся.</div>
+<label for="file">Файл
+<input type="file" id="file" accept=".xlsx,.xls,.docx">
+</label>
+<label for="whSel">Склад
+<select id="whSel"></select>
+</label>
+<label for="whNew" id="whNewWrap" hidden>Название нового склада
+<input type="text" id="whNew" placeholder="Например: Склад 3">
+</label>
+<div id="preview"></div>
+<div class="btns">
+<button class="btn" id="saveBtn" type="button" disabled>Заменить остатки</button>
+<button class="btn ghost" id="copyBtn" type="button">Скопировать сводку</button>
+<button class="btn danger" id="delBtn" type="button">Удалить склад</button>
+</div>
+</div>
+<div><button class="btn ghost" id="ownerBtn" type="button">Вход для владельца</button></div>
+</div>
+
+<dialog id="ownerDlg">
+<form method="dialog" id="ownerForm">
+<b>Вход для владельца</b>
+<div class="note">Нужен, чтобы загружать остатки и менять цены. Ключ хранится только в этом браузере.</div>
+<label for="repoIn">Репозиторий <input type="text" id="repoIn" placeholder="ваш-логин/ostatki"></label>
+<label for="tokenIn">Ключ GitHub (token) <input type="password" id="tokenIn" placeholder="github_pat_…" autocomplete="off"></label>
+<div class="note" id="ownerMsg"></div>
+<div class="btns">
+<button class="btn" type="submit">Войти</button>
+<button class="btn ghost" type="button" id="ownerCancel">Отмена</button>
+</div>
+</form>
+</dialog>
+
+<dialog id="editDlg">
+<form method="dialog" id="editForm">
+<b id="editTitle"></b>
+<div class="sub" id="editSub"></div>
+<label for="editKol">Количество <input type="number" id="editKol" step="any" min="0"></label>
+<label for="editCena">Цена, сум <input type="number" id="editCena" step="any" min="0" placeholder="не указана"></label>
+<div class="btns">
+<button class="btn" id="editSave" type="submit">Сохранить</button>
+<button class="btn ghost" type="button" id="editCancel">Отмена</button>
+</div>
+</form>
+</dialog>
+
+<dialog id="textDlg">
+<form method="dialog">
+<b id="textTitle">Сводка</b>
+<div class="note" id="textNote">Скопируйте и отправьте в Telegram.</div>
+<textarea id="textArea" readonly></textarea>
+<div class="btns">
+<button class="btn" type="button" id="textCopy">Скопировать</button>
+<button class="btn ghost" type="submit">Закрыть</button>
+</div>
+</form>
+</dialog>
+
+<dialog id="askDlg">
+<form method="dialog">
+<b id="askText"></b>
+<div class="btns">
+<button class="btn danger" value="yes">Удалить</button>
+<button class="btn ghost" value="no">Отмена</button>
+</div>
+</form>
+</dialog>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script>
+"use strict";
+const LOW = 20;
+const $ = id => document.getElementById(id);
+let canEdit = false, sklady = {}, fSklad = "all", fTip = "all", fLow = false, pending = null, editing = null;
+
+/* ---------- helpers ---------- */
+const fmt = n => Math.round(n).toLocaleString("ru-RU").replace(/\u00a0/g, " ");
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function fnv(s){let h=0x811c9dc5;for(const b of new TextEncoder().encode(s)){h^=b;h=Math.imul(h,0x01000193)>>>0;}return "w"+h.toString(16).padStart(8,"0");}
+const num = v => { if (v==null||v==="") return 0; if (typeof v==="number") return v;
+const n = parseFloat(String(v).replace(/[\s\u00a0]/g,"").replace(",",".")); return isNaN(n)?0:n; };
+const th = v => { const n = parseFloat(String(v??"").replace(",", ".")); return isNaN(n) ? String(v??"").trim() : String(+n.toFixed(3)).replace(".", ","); };
+const normQ = s => String(s||"").trim().toLowerCase().replace(/^[фdø⌀]\s*/,"").replace(/\s*[xх×*\\\/-]\s*/g,"/");
+const sizeNums = r => (r.match(/\d+(?:[.,]\d+)?/g)||[]).map(x=>parseFloat(x.replace(",",".")));
+const isRound = it => /^кругл/i.test(it.tip||"");
+const label = it => `${it.razmer} · ${it.tolsh} мм`;
+const subLabel = it => [isRound(it) ? "Круглая труба" : "Профильная труба", it.dlina].filter(Boolean).join(" · ");
+const today = () => new Date().toLocaleDateString("ru-RU");
+function cmp(a,b){
+if (isRound(a)!==isRound(b)) return isRound(a)?1:-1;
+const x=sizeNums(a.razmer), y=sizeNums(b.razmer);
+for (let i=0;i<Math.max(x.length,y.length);i++){ if((x[i]||0)!==(y[i]||0)) return (x[i]||0)-(y[i]||0); }
+return num(a.tolsh)-num(b.tolsh) || (a._s||"").localeCompare(b._s||"");
+}
+function allItems(){
+const out=[]; for (const [id,w] of Object.entries(sklady)) (w.items||[]).forEach((it,i)=>out.push({...it,_s:w.name,_id:id,_i:i}));
+return out;
+}
+
+/* ---------- render ---------- */
+function render(){
+const names = Object.values(sklady).map(w=>w.name).sort((a,b)=>a.localeCompare(b,"ru"));
+if (fSklad!=="all" && !names.includes(fSklad)) fSklad="all";
+// total + cards
+let total=0; const cards=[];
+for (const w of Object.values(sklady).sort((a,b)=>a.name.localeCompare(b.name,"ru"))){
+const units={}; let sum=0, np=0;
+for (const it of w.items||[]){ const u=it.ed||"ед."; units[u]=(units[u]||0)+num(it.kol); sum+=num(it.kol)*num(it.cena); if(!num(it.cena)) np++; }
+total+=sum;
+cards.push(`<div class="card"><b>${esc(w.name)}</b>
+<div class="meta">${(w.items||[]).length} позиций · на ${esc(w.updated||"—")}</div>
+${w.prices?`<div class="meta">Цены: ${esc(w.prices)}</div>`:""}
+<div class="meta">Всего: ${Object.entries(units).map(([u,v])=>`${fmt(v)} ${esc(u)}`).join(", ")}</div>
+${sum?`<div class="sum">${fmt(sum)} сум</div>`:""}
+${np?`<div class="np">Без цены: ${np} поз.</div>`:""}</div>`);
+}
+$("cards").innerHTML = cards.join("") || "";
+$("total").innerHTML = total ? `${fmt(total)} сум<small>общая сумма остатков с ценой</small>` : "";
+// chips
+$("chipsSklad").innerHTML = ["all",...names].map(n=>`<button class="chip" type="button" data-s="${esc(n)}" aria-pressed="${fSklad===n}">${n==="all"?"Все склады":esc(n)}</button>`).join("");
+$("chipsTip").innerHTML = [["all","Все трубы"],["prof","Профильные"],["round","Круглые"]].map(([k,t])=>`<button class="chip" type="button" data-t="${k}" aria-pressed="${fTip===k}">${t}</button>`).join("")
++ `<button class="chip warn" type="button" id="lowChip" aria-pressed="${fLow}">Заканчивается (&lt; ${LOW})</button>`;
+// warehouse select in upload
+const cur=$("whSel").value;
+$("whSel").innerHTML = names.map(n=>`<option value="${esc(n)}">${esc(n)}</option>`).join("") + `<option value="__new">+ Новый склад…</option>`;
+if (cur && [...$("whSel").options].some(o=>o.value===cur)) $("whSel").value=cur;
+$("whNewWrap").hidden = $("whSel").value!=="__new";
+renderList();
+}
+
+function filtered(){
+const q = normQ($("q").value);
+let items = allItems();
+if (fSklad!=="all") items = items.filter(i=>i._s===fSklad);
+if (fTip==="prof") items = items.filter(i=>!isRound(i));
+if (fTip==="round") items = items.filter(i=>isRound(i));
+if (fLow) items = items.filter(i=>num(i.kol)<LOW);
+if (q){
+const m = q.match(/^(\d+(?:\/\d+)?)(?:\s+([\d.,]+))?$/);
+if (m){ const t = m[2]?th(m[2]):null; items = items.filter(i=>i.razmer===m[1] && (t===null || i.tolsh===t)); }
+else items = items.filter(i=>(label(i)+" "+subLabel(i)+" "+i._s).toLowerCase().includes(q.replace(/\//g," ").trim()) || (label(i)).toLowerCase().includes(q));
+}
+return items.sort(cmp);
+}
+
+function renderList(){
+if (!Object.keys(sklady).length){ $("list").innerHTML=`<div class="empty">Данных пока нет. Загрузите файл с остатками ниже.</div>`; return; }
+const items = filtered();
+if (!items.length){ $("list").innerHTML=`<div class="empty">Ничего не найдено. Проверьте размер, например 40/20 или 32 1,5.</div>`; return; }
+let sum=0; const units={};
+const rows = items.map(it=>{
+const k=num(it.kol), c=num(it.cena), u=it.ed||""; sum+=k*c; units[u||"ед."]=(units[u||"ед."]||0)+k;
+return `<button type="button" class="row${k<LOW?" low":""}" data-id="${it._id}" data-i="${it._i}">
+<div><span class="nm">${esc(label(it))}</span>${fSklad==="all"?`<span class="pill">${esc(it._s)}</span>`:""}<div class="sub">${esc(subLabel(it))}</div></div>
+<div><div class="qty">${fmt(k)} ${esc(u)}</div>
+${c?`<div class="price">× ${fmt(c)} = ${fmt(k*c)}</div>`:`<div class="price none">цена не указана</div>`}</div></button>`;
+});
+$("list").innerHTML = rows.join("") + `<div class="foot"><span>Позиций: ${items.length} · ${Object.entries(units).map(([u,v])=>`${fmt(v)} ${esc(u)}`).join(", ")}</span>${sum?`<b>${fmt(sum)} сум</b>`:""}</div>`;
+}
+
+/* ---------- filters & edit ---------- */
+$("q").addEventListener("input", renderList);
+document.addEventListener("click", e=>{
+const s=e.target.closest("[data-s]"); if (s){ fSklad=s.dataset.s; render(); return; }
+const t=e.target.closest("[data-t]"); if (t){ fTip=t.dataset.t; render(); return; }
+if (e.target.closest("#lowChip")){ fLow=!fLow; render(); return; }
+const r=e.target.closest(".row"); if (r) openEdit(r.dataset.id, +r.dataset.i);
+});
+function openEdit(id,i){
+const w=sklady[id]; if(!w) return; const it=w.items[i]; editing={id,i};
+$("editTitle").textContent = label(it); $("editSub").textContent = subLabel(it)+" · "+w.name;
+$("editKol").value = num(it.kol); $("editCena").value = num(it.cena)||"";
+$("editSave").disabled = !canEdit; $("editKol").readOnly = $("editCena").readOnly = !canEdit;
+$("editSave").hidden = !canEdit; $("editDlg").showModal();
+}
+$("editCancel").onclick=()=>$("editDlg").close();
+$("editForm").addEventListener("submit", async e=>{
+e.preventDefault(); if(!editing||!canEdit) return;
+const w=sklady[editing.id]; const items=w.items.map(x=>({...x}));
+const it=items[editing.i]; const k=num($("editKol").value), c=num($("editCena").value);
+if (k===num(it.kol) && c===num(it.cena)){ $("editDlg").close(); return; }
+it.kol=k; it.cena=c; $("editSave").disabled=true;
+try { await saveAll({...sklady, [editing.id]:{...w, items}}, "Цена/кол-во: "+label(it)+" ("+w.name+")"); $("editDlg").close(); }
+catch(err){ setStatus("Не удалось сохранить: "+(err.message||err.code), true); }
+finally{ $("editSave").disabled=false; }
+});
+
+/* ---------- parsing files ---------- */
+const KEYS = [
+["sklad",/^склад|ombor/], ["tolsh",/толщ|qalin/], ["cena",/^цен|narx/], ["dlina",/длин|uzun/],
+["ed",/^ед/], ["tip",/^тип|^вид|turi/], ["kol",/кол|остат|пм|qoldiq|soni|метр/], ["razmer",/размер|наимен|профил|o.?lcham|труб/]
+];
+function parseRows(rows){
+let hdr=-1, cols={}, unit="";
+for (let r=0;r<Math.min(rows.length,15);r++){
+const found={};
+rows[r].forEach((c,i)=>{ const t=String(c??"").trim().toLowerCase(); if(!t) return;
+for (const [k,re] of KEYS){ if (!(k in found) && re.test(t)){ found[k]=i; if(k==="kol"&&/пм/.test(t)) unit="пм"; break; } } });
+if ("razmer" in found && "kol" in found){ hdr=r; cols=found; break; }
+}
+if (hdr<0) return [];
+const out=[];
+for (let r=hdr+1;r<rows.length;r++){
+const g=k=>k in cols ? rows[r][cols[k]] : null;
+const raw=String(g("razmer")??"").trim(); if(!raw) continue;
+const kolRaw=g("kol"); if (kolRaw==null || String(kolRaw).trim()==="" || isNaN(num(kolRaw)) ) continue;
+let text=raw.toLowerCase(); let dlina=String(g("dlina")??"").trim();
+const dm=text.match(/\((\d+)\s*(m|м)?\)/); if(dm && !dlina) dlina=dm[1]+" м";
+text=text.replace(/\(.*?\)/g," ");
+const nums=(text.match(/\d+(?:[.,]\d+)?/g)||[]); if(!nums.length) continue;
+let tip=String(g("tip")??"").trim();
+if (!tip) tip = /кругл/.test(text) ? "Круглая" : /профил/.test(text) ? "Профильная" : "";
+let razmer, tolsh=g("tolsh");
+const hasT = tolsh!=null && String(tolsh).trim()!=="";
+if (hasT){
+if (tip==="Круглая" || nums.length===1){ razmer=nums[0]; tip=tip||"Круглая"; }
+else { razmer=nums[0]+"/"+nums[1]; tip=tip||"Профильная"; }
+} else {
+if (tip!=="Круглая" && nums.length>=3){ razmer=nums[0]+"/"+nums[1]; tolsh=nums[2]; tip=tip||"Профильная"; }
+else { razmer=nums[0]; tolsh=nums[1]||""; tip=tip||"Круглая"; }
+}
+if (/^кругл/i.test(tip)) tip="Круглая"; else tip="Профильная";
+out.push({ sklad:String(g("sklad")??"").trim(), tip, razmer, tolsh:th(tolsh), dlina,
+kol:num(kolRaw), ed:String(g("ed")??"").trim()||unit, cena:num(g("cena")) });
+}
+return out;
+}
+async function parseFile(file){
+const buf = await file.arrayBuffer(); let items=[], date=null;
+if (/\.docx$/i.test(file.name)){
+if (!window.mammoth) throw new Error("не загрузился модуль для Word, обновите страницу");
+const {value} = await mammoth.convertToHtml({arrayBuffer:buf});
+const doc = new DOMParser().parseFromString(value,"text/html");
+const dm = doc.body.textContent.match(/(\d{2})[\/.](\d{2})[\/.](\d{4})/); if (dm) date=`${dm[1]}.${dm[2]}.${dm[3]}`;
+for (const t of doc.querySelectorAll("table")){
+const rows=[...t.querySelectorAll("tr")].map(tr=>[...tr.querySelectorAll("td,th")].map(td=>td.textContent.trim()));
+items.push(...parseRows(rows));
+}
+} else {
+if (!window.XLSX) throw new Error("не загрузился модуль для Excel, обновите страницу");
+const wb = XLSX.read(buf,{type:"array"});
+for (const sn of wb.SheetNames){
+const rows = XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:""});
+const part = parseRows(rows); if (wb.SheetNames.length>1) part.forEach(p=>{ if(!p.sklad) p.sklad=sn; });
+items.push(...part);
+}
+}
+return {items,date};
+}
+
+/* ---------- upload ---------- */
+$("whSel").addEventListener("change", ()=>{ $("whNewWrap").hidden=$("whSel").value!=="__new"; showPreview(); });
+$("whNew").addEventListener("input", showPreview);
+$("file").addEventListener("change", async ()=>{
+const f=$("file").files[0]; pending=null; $("preview").innerHTML=""; $("saveBtn").disabled=true; if(!f) return;
+try{
+const r=await parseFile(f); pending=r;
+if (!r.items.some(i=>i.sklad)){
+const guess = /zavod|завод/i.test(f.name) ? "Завод" : null;
+if (guess && [...$("whSel").options].some(o=>o.value===guess)) $("whSel").value=guess;
+$("whNewWrap").hidden=$("whSel").value!=="__new";
+}
+showPreview();
+}catch(err){ $("preview").innerHTML=`<div class="msg err">Не удалось прочитать файл: ${esc(err.message||err)}</div>`; }
+});
+function targetGroups(){
+if (!pending) return {};
+const fallback = $("whSel").value==="__new" ? $("whNew").value.trim() : $("whSel").value;
+const g={}; for (const it of pending.items){ const n=it.sklad||fallback; if(!n) continue; const {sklad,...rest}=it; (g[n]=g[n]||[]).push(rest); }
+return g;
+}
+function showPreview(){
+if (!pending) return;
+if (!pending.items.length){ $("preview").innerHTML=`<div class="msg err">Не нашёл таблицу. Нужны столбцы «Размер» и «Кол-во» (по желанию: «Склад», «Толщина», «Цена»).</div>`; $("saveBtn").disabled=true; return; }
+const g=targetGroups(); const names=Object.keys(g);
+if (!names.length){ $("preview").innerHTML=`<div class="msg err">Введите название склада.</div>`; $("saveBtn").disabled=true; return; }
+$("preview").innerHTML=`<div class="msg">Найдено позиций: <b>${pending.items.length}</b>${pending.date?` · дата в файле: ${esc(pending.date)}`:""}<br>`+
+names.map(n=>`${esc(n)}: ${g[n].length} поз. ${sklady[fnv(n)]?"(старые данные заменятся)":"(новый склад)"}`).join("<br>")+`</div>`;
+$("saveBtn").disabled=!canEdit;
+}
+$("saveBtn").onclick = async ()=>{
+const g=targetGroups(); $("saveBtn").disabled=true;
+try{
+const next={...sklady};
+for (const [n,items] of Object.entries(g)){
+const old=sklady[fnv(n)], price={};
+(old?.items||[]).forEach(o=>{ if(num(o.cena)) price[o.razmer+"|"+o.tolsh]=num(o.cena); });
+items.forEach(it=>{ if(!num(it.cena) && price[it.razmer+"|"+it.tolsh]) it.cena=price[it.razmer+"|"+it.tolsh]; });
+const body={name:n, updated:pending.date||today(), items}; if(old?.prices) body.prices=old.prices;
+next[fnv(n)]=body;
+}
+await saveAll(next, "Остатки: "+Object.keys(g).join(", "));
+$("preview").innerHTML=`<div class="msg">Готово: обновлено ${Object.keys(g).map(esc).join(", ")}.</div>`;
+$("file").value=""; pending=null;
+}catch(err){ $("preview").innerHTML=`<div class="msg err">Не удалось сохранить: ${esc(err.message||err.code)}</div>`; $("saveBtn").disabled=false; }
+};
+$("delBtn").onclick = ()=>{
+const n=$("whSel").value; if (!n || n==="__new" || !canEdit) return;
+$("askText").textContent=`Удалить склад «${n}» со всеми остатками?`;
+$("askDlg").returnValue=""; $("askDlg").showModal();
+$("askDlg").onclose = async ()=>{ if ($("askDlg").returnValue!=="yes") return;
+try{ const next={...sklady}; delete next[fnv(n)]; await saveAll(next, "Удалён склад "+n); }catch(err){ setStatus("Не удалось удалить: "+(err.message||err.code), true); } };
+};
+
+/* ---------- summary text ---------- */
+function summaryText(){
+const L=["📦 Остатки на складах — "+today(),""]; let total=0;
+for (const w of Object.values(sklady).sort((a,b)=>a.name.localeCompare(b.name,"ru"))){
+const units={}; let sum=0;
+for (const it of w.items||[]){ const u=it.ed||"ед."; units[u]=(units[u]||0)+num(it.kol); sum+=num(it.kol)*num(it.cena); }
+total+=sum;
+L.push(`🏬 ${w.name} (на ${w.updated}): ${(w.items||[]).length} поз., ${Object.entries(units).map(([u,v])=>fmt(v)+" "+u).join(", ")}${sum?", "+fmt(sum)+" сум":""}`);
+}
+if (total) L.push("","💰 Итого: "+fmt(total)+" сум");
+const low=allItems().filter(i=>num(i.kol)<LOW).sort(cmp);
+if (low.length){ L.push("","⚠️ Заканчивается:"); low.forEach(i=>L.push(`• ${label(i)} — ${fmt(num(i.kol))} ${i.ed||""} (${i._s})`)); }
+const q=$("q").value.trim();
+if (q){ const f=filtered(); L.push("",`🔎 ${q}:`); f.forEach(i=>L.push(`• ${label(i)} — ${fmt(num(i.kol))} ${i.ed||""}${num(i.cena)?" × "+fmt(num(i.cena)):""} (${i._s})`)); }
+return L.join("\n");
+}
+$("copyBtn").onclick = ()=>{ $("textArea").value=summaryText(); $("textNote").textContent="Скопируйте и отправьте в Telegram."; $("textDlg").showModal(); };
+$("textCopy").onclick = async ()=>{
+try{ await navigator.clipboard.writeText($("textArea").value); $("textNote").textContent="Скопировано."; }
+catch{ $("textArea").select(); $("textNote").textContent="Выделил текст — нажмите «Копировать» в меню."; }
+};
+
+/* ---------- data (GitHub) ---------- */
+function setStatus(t,err){ $("status").textContent=t; $("status").style.color=err?"var(--warn)":""; }
+const LS="ostatki_gh";
+function cfg(){ try{ return JSON.parse(localStorage.getItem(LS)||"{}"); }catch{ return {}; } }
+function setCfg(c){ try{ localStorage.setItem(LS, JSON.stringify(c)); }catch{} }
+function guessRepo(){
+const h=location.hostname; if(!h.endsWith(".github.io")) return "";
+const owner=h.split(".")[0]; const seg=location.pathname.split("/").filter(Boolean)[0];
+return owner+"/"+(seg && !seg.includes(".") ? seg : h);
+}
+const b64 = str => { const bytes=new TextEncoder().encode(str); let bin=""; bytes.forEach(b=>bin+=String.fromCharCode(b)); return btoa(bin); };
+const unb64 = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\n/g,"")),c=>c.charCodeAt(0)));
+async function gh(path, opts={}){
+const c=cfg();
+const r=await fetch(`https://api.github.com/repos/${c.repo}/contents/${path}`,{...opts,headers:{
+"Authorization":"Bearer "+c.token,"Accept":"application/vnd.github+json",...(opts.headers||{})}});
+if(!r.ok){ const t=await r.text(); throw new Error(r.status===401||r.status===403?"ключ GitHub не подходит или нет прав на запись":r.status===404?"репозиторий не найден":"GitHub "+r.status+": "+t.slice(0,120)); }
+return r.json();
+}
+async function saveAll(next, message){
+setStatus("Сохраняю в GitHub…");
+const cur=await gh("data.json?ref=main&t="+Date.now());
+await gh("data.json",{method:"PUT",body:JSON.stringify({message:message||"Обновление остатков",sha:cur.sha,branch:"main",
+content:b64(JSON.stringify({sklady:next},null,1))})});
+sklady=next; render(); showPreview();
+setStatus("Сохранено. У остальных обновится через 1–2 минуты.");
+}
+async function loadData(){
+const c=cfg();
+try{
+if (c.token && c.repo){            // владелец: свежие данные прямо из репозитория
+const f=await gh("data.json?ref=main&t="+Date.now()); sklady=JSON.parse(unb64(f.content)).sklady||{};
+} else {
+const r=await fetch("data.json?t="+Date.now(),{cache:"no-store"}); if(!r.ok) throw new Error("data.json не найден");
+sklady=(await r.json()).sklady||{};
+}
+const upd=Object.values(sklady).map(w=>w.updated).filter(Boolean);
+setStatus(canEdit?"Режим владельца: нажмите на позицию, чтобы изменить количество или цену.":"Нажмите на позицию, чтобы посмотреть детали.");
+}catch(err){ setStatus("Не удалось загрузить данные: "+(err.message||err), true); }
+render();
+}
+function applyMode(){
+const c=cfg(); canEdit=!!(c.token&&c.repo);
+$("uploadPanel").hidden=!canEdit; $("ownerBtn").textContent=canEdit?"Выйти из режима владельца":"Вход для владельца";
+}
+$("ownerBtn").onclick=()=>{
+if (canEdit){ setCfg({}); applyMode(); loadData(); return; }
+$("repoIn").value=cfg().repo||guessRepo(); $("tokenIn").value=""; $("ownerMsg").textContent=""; $("ownerDlg").showModal();
+};
+$("ownerCancel").onclick=()=>$("ownerDlg").close();
+$("ownerForm").addEventListener("submit", async e=>{
+e.preventDefault();
+const repo=$("repoIn").value.trim().replace(/^https?:\/\/github\.com\//,"").replace(/\/$/,""), token=$("tokenIn").value.trim();
+if(!repo||!token){ $("ownerMsg").textContent="Заполните оба поля."; return; }
+setCfg({repo,token}); $("ownerMsg").textContent="Проверяю…";
+try{ await gh("data.json?ref=main"); $("ownerDlg").close(); applyMode(); loadData(); }
+catch(err){ setCfg({}); $("ownerMsg").textContent="Не получилось: "+(err.message||err); }
+});
+applyMode(); render(); loadData();
+</script>
+</body>
+</html>
