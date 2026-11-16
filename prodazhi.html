@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Продажи и прибыль</title>
+<link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f3f5f7;--surface:#fff;--ink:#18212b;--muted:#5f6b78;--line:#dde3ea;--accent:#1f5f8b;--accent-soft:#e3eef6;--warn:#a35c00;--warn-soft:#fdf0dc;--good:#2c7a4b;--font:"Golos Text",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#11161c;--surface:#19212a;--ink:#e7edf3;--muted:#93a1b0;--line:#2a3542;--accent:#6fb0de;--accent-soft:#1d3346;--warn:#f0a94b;--warn-soft:#3a2a12;--good:#6cc492;color-scheme:dark}}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.45 var(--font);font-variant-numeric:tabular-nums}
+.wrap{max-width:860px;margin:0 auto;padding:16px 16px 48px;display:grid;gap:16px}
+h1{font-size:22px;margin:0}a{color:var(--accent)}
+.top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
+.big{font-size:26px;font-weight:700;color:var(--good)}.big small{display:block;font-size:13px;font-weight:400;color:var(--muted)}
+.day{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.dh{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px;border-bottom:1px solid var(--line)}
+.dh b{font-size:17px}.meta{color:var(--muted);font-size:13px}.sum{font-size:18px;font-weight:700;color:var(--good);text-align:right}
+.row{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:10px 14px;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}.nm{font-weight:600}.r{text-align:right;font-weight:600}
+.note{grid-column:1/-1;font-size:13px;color:var(--warn);background:var(--warn-soft);border-radius:6px;padding:4px 8px;margin-top:4px}
+.empty{padding:20px;color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div class="top"><div><h1>Продажи и прибыль</h1><div class="meta"><a href="./">← Остатки на складах</a></div></div><div class="big" id="total"></div></div>
+<div class="meta">Количество — в метрах; вес по прайсу ATMZ (кг/м), где нет — по ГОСТ.</div>
+<div id="days"><div class="empty">Загрузка…</div></div>
+</div>
+<script>
+"use strict";
+const fmt=n=>Math.round(n).toLocaleString("ru-RU").replace(/\u00a0/g," ");
+const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const key=d=>d.split(".").reverse().join("");
+fetch("sales.json?t="+Date.now(),{cache:"no-store"}).then(r=>r.json()).then(j=>{
+  const days=(j.prodazhi||[]).slice().sort((a,b)=>key(b.data).localeCompare(key(a.data)));
+  let all=0;
+  const html=days.map(d=>{
+    const items=d.items.slice().sort((a,b)=>b.kol*b.pribyl-a.kol*a.pribyl);
+    const sum=items.reduce((s,i)=>s+i.kol*i.pribyl,0), kol=items.reduce((s,i)=>s+i.kol,0), kg=items.reduce((s,i)=>s+i.kol*(i.kgm||0),0), rev=items.reduce((s,i)=>s+(i.zakup?i.kol*(i.zakup+i.pribyl):0),0); all+=sum;
+    return `<div class="day"><div class="dh"><div><b>${esc(d.data)}</b><div class="meta">${esc(d.sklad)} · продано ${fmt(kol)} м · ${items.length} позиций</div><div class="meta">Выручка: ${fmt(rev)} сум · вес: ${fmt(kg)} кг (${(kg/1000).toFixed(2).replace(".",",")} т)</div></div><div class="sum">${fmt(sum)} сум<div class="meta">прибыль</div></div></div>`+
+      items.map(i=>`<div class="row"><div><span class="nm">${esc(i.razmer)} · ${esc(i.tolsh)} мм</span><div class="meta">${fmt(i.kol)} м × ${fmt(i.pribyl)} сум наценки</div>${i.zakup?`<div class="meta">продано по ${fmt(i.zakup+i.pribyl)} (закупка ${fmt(i.zakup)})</div>`:""}</div><div class="r">${fmt(i.kol*i.pribyl)}${i.kgm?`<div class="meta">${fmt(i.kol*i.kgm)} кг</div>`:""}</div>${i.note?`<div class="note">${esc(i.note)}</div>`:""}</div>`).join("")+`</div>`;
+  }).join("");
+  document.getElementById("days").innerHTML=html||`<div class="empty">Продаж пока нет.</div>`;
+  document.getElementById("total").innerHTML=`${fmt(all)} сум<small>прибыль за все дни</small>`;
+}).catch(()=>{document.getElementById("days").innerHTML=`<div class="empty">Не удалось загрузить продажи.</div>`;});
+</script>
+</body>
+</html>
