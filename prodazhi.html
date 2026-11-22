@@ -21,6 +21,9 @@ h1{font-size:22px;margin:0}a{color:var(--accent)}
 .nm{font-weight:600}.r{text-align:right;font-weight:600}
 .net{font-size:15px;font-weight:700;color:var(--ink);margin-top:6px}
 .note{grid-column:1/-1;font-size:13px;color:var(--warn);background:var(--warn-soft);border-radius:6px;padding:4px 8px;margin-top:4px}
+.chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{font:inherit;font-size:14px;padding:7px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
 .empty{padding:20px;color:var(--muted);text-align:center}
 </style>
 </head>
@@ -28,6 +31,7 @@ h1{font-size:22px;margin:0}a{color:var(--accent)}
 <div class="wrap">
 <div class="top"><div><h1>Продажи и прибыль</h1><div class="meta"><a href="./">← Остатки на складах</a></div></div><div class="big" id="total"></div></div>
 <div class="meta">Количество — в метрах; вес по прайсу ATMZ (кг/м), где нет — по ГОСТ.</div>
+<div class="chips" id="chips"></div>
 <div id="days"><div class="empty">Загрузка…</div></div>
 </div>
 <script>
@@ -35,8 +39,10 @@ h1{font-size:22px;margin:0}a{color:var(--accent)}
 const fmt=n=>Math.round(n).toLocaleString("ru-RU").replace(/\u00a0/g," ");
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const key=d=>d.split(".").reverse().join("");
-fetch("sales.json?t="+Date.now(),{cache:"no-store"}).then(r=>r.json()).then(j=>{
-  const days=(j.prodazhi||[]).slice().sort((a,b)=>key(b.data).localeCompare(key(a.data)));
+let DAYS=[], SEL="all";
+function show(){
+  const days=SEL==="all"?DAYS:DAYS.filter(d=>d.data===SEL);
+  document.getElementById("chips").innerHTML=["all",...DAYS.map(d=>d.data)].map(x=>`<button class="chip" type="button" data-d="${esc(x)}" aria-pressed="${x===SEL}">${x==="all"?"Все дни":esc(x.slice(0,5))}</button>`).join("");
   let all=0, allNet=0, allExp=0, hasExp=false; const noExp=[];
   const html=days.map(d=>{
     const items=d.items.slice().sort((a,b)=>b.kol*b.pribyl-a.kol*a.pribyl);
@@ -52,7 +58,11 @@ ${exp!=null?`<div class="meta">Расходы: ${fmt(exp)} сум</div>`:""}</di
       items.map(i=>`<div class="row"><div><span class="nm">${esc(i.razmer)} · ${esc(i.tolsh)} мм</span><div class="meta">${fmt(i.kol)} м × ${fmt(i.pribyl)} сум наценки</div>${i.zakup?`<div class="meta">продано по ${fmt(i.zakup+i.pribyl)} (закупка ${fmt(i.zakup)})</div>`:""}</div><div class="r">${fmt(i.kol*i.pribyl)}${i.kgm?`<div class="meta">${fmt(i.kol*i.kgm)} кг</div>`:""}</div>${i.note?`<div class="note">${esc(i.note)}</div>`:""}</div>`).join("")+`</div>`;
   }).join("");
   document.getElementById("days").innerHTML=html||`<div class="empty">Продаж пока нет.</div>`;
-  document.getElementById("total").innerHTML=`${fmt(all)} сум<small>прибыль за все дни${hasExp?` · расходы ${fmt(allExp)} · чистыми ${fmt(allNet)} сум${noExp.length?` (расходы за ${noExp.join(", ")} не указаны)`:""}`:""}</small>`;
+  document.getElementById("total").innerHTML=`${fmt(all)} сум<small>прибыль ${SEL==="all"?"за все дни":"за "+SEL.slice(0,5)}${hasExp?` · расходы ${fmt(allExp)} · чистыми ${fmt(allNet)} сум${noExp.length?` (расходы за ${noExp.join(", ")} не указаны)`:""}`:""}</small>`;
+}
+document.addEventListener("click",e=>{const b=e.target.closest("[data-d]"); if(b){SEL=b.dataset.d; show();}});
+fetch("sales.json?t="+Date.now(),{cache:"no-store"}).then(r=>r.json()).then(j=>{
+  DAYS=(j.prodazhi||[]).slice().sort((a,b)=>key(b.data).localeCompare(key(a.data))); show();
 }).catch(()=>{document.getElementById("days").innerHTML=`<div class="empty">Не удалось загрузить продажи.</div>`;});
 </script>
 </body>
