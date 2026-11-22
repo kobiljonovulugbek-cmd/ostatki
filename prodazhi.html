@@ -24,12 +24,19 @@ h1{font-size:22px;margin:0}a{color:var(--accent)}
 .chips{display:flex;gap:8px;flex-wrap:wrap}
 .chip{font:inherit;font-size:14px;padding:7px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer}
 .chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;padding:0 14px 14px;border-bottom:1px solid var(--line)}
+.tile{background:var(--bg);border-radius:10px;padding:10px 12px}
+.tile .v{font-size:18px;font-weight:700}.tile .k{font-size:13px;color:var(--muted)}
+#total .tile{background:var(--surface);border:1px solid var(--line)}
+.tile.g .v{color:var(--good)}.tile.w .v{color:var(--warn)}
+.dh{border-bottom:0}
 .empty{padding:20px;color:var(--muted);text-align:center}
 </style>
 </head>
 <body>
 <div class="wrap">
-<div class="top"><div><h1>Продажи и прибыль</h1><div class="meta"><a href="./">← Остатки на складах</a></div></div><div class="big" id="total"></div></div>
+<div class="top"><div><h1>Продажи и прибыль</h1><div class="meta"><a href="./">← Остатки на складах</a></div></div></div>
+<div id="total"></div>
 <div class="meta">Количество — в метрах; вес по прайсу ATMZ (кг/м), где нет — по ГОСТ.</div>
 <div class="chips" id="chips"></div>
 <div id="days"><div class="empty">Загрузка…</div></div>
@@ -43,22 +50,23 @@ let DAYS=[], SEL="all";
 function show(){
   const days=SEL==="all"?DAYS:DAYS.filter(d=>d.data===SEL);
   document.getElementById("chips").innerHTML=["all",...DAYS.map(d=>d.data)].map(x=>`<button class="chip" type="button" data-d="${esc(x)}" aria-pressed="${x===SEL}">${x==="all"?"Все дни":esc(x.slice(0,5))}</button>`).join("");
-  let all=0, allNet=0, allExp=0, hasExp=false; const noExp=[];
+  let all=0, allNet=0, allExp=0, allRev=0, hasExp=false; const noExp=[];
   const html=days.map(d=>{
     const items=d.items.slice().sort((a,b)=>b.kol*b.pribyl-a.kol*a.pribyl);
     const rows=items.reduce((s,i)=>s+i.kol*i.pribyl,0), kol=items.reduce((s,i)=>s+i.kol,0), kg=items.reduce((s,i)=>s+i.kol*(i.kgm||0),0);
     const calcRev=items.reduce((s,i)=>s+(i.zakup?i.kol*(i.zakup+i.pribyl):0),0);
-    const sum=d.foyda??rows, rev=d.savdo??calcRev; all+=sum;
+    const sum=d.foyda??rows, rev=d.savdo??calcRev; all+=sum; allRev+=rev;
     const exp=d.rasxod; if(exp!=null){hasExp=true; allExp+=exp; allNet+=sum-exp;} else { allNet+=sum; noExp.push(d.data.slice(0,5)); }
     const diff=d.foyda!=null && Math.abs(d.foyda-rows)>=1 ? `<div class="note">По строкам выходит ${fmt(rows)} сум, в тетради ${fmt(d.foyda)} — разница из-за неразборчивых цифр</div>`:"";
-    return `<div class="day"><div class="dh"><div><b>${esc(d.data)}</b><div class="meta">${esc(d.sklad)} · продано ${fmt(kol)} м · ${items.length} позиций · ${fmt(kg)} кг</div>
-<div class="meta">Продажи (савдо): <b>${fmt(rev)} сум</b>${d.savdo==null?" (расчёт)":""}</div>
-${exp!=null?`<div class="meta">Расходы: ${fmt(exp)} сум</div>`:""}</div>
-<div class="sum">${fmt(sum)} сум<div class="meta">прибыль</div>${exp!=null?`<div class="net">${fmt(sum-exp)} сум<div class="meta">чистыми</div></div>`:""}</div></div>${diff?`<div class="row">${diff}</div>`:""}`+
+    return `<div class="day"><div class="dh"><div><b>${esc(d.data)}</b><div class="meta">${esc(d.sklad)} · продано ${fmt(kol)} м · ${items.length} позиций · ${fmt(kg)} кг</div></div></div>
+<div class="tiles"><div class="tile"><div class="v">${fmt(rev)}</div><div class="k">продажи (савдо)${d.savdo==null?", расчёт":""}</div></div>
+<div class="tile g"><div class="v">${fmt(sum)}</div><div class="k">прибыль</div></div>
+<div class="tile w"><div class="v">${exp!=null?fmt(exp):"—"}</div><div class="k">расходы${exp==null?" не указаны":""}</div></div>
+<div class="tile"><div class="v">${exp!=null?fmt(sum-exp):"—"}</div><div class="k">чистыми</div></div></div>${diff?`<div class="row">${diff}</div>`:""}`+
       items.map(i=>`<div class="row"><div><span class="nm">${esc(i.razmer)} · ${esc(i.tolsh)} мм</span><div class="meta">${fmt(i.kol)} м × ${fmt(i.pribyl)} сум наценки</div>${i.zakup?`<div class="meta">продано по ${fmt(i.zakup+i.pribyl)} (закупка ${fmt(i.zakup)})</div>`:""}</div><div class="r">${fmt(i.kol*i.pribyl)}${i.kgm?`<div class="meta">${fmt(i.kol*i.kgm)} кг</div>`:""}</div>${i.note?`<div class="note">${esc(i.note)}</div>`:""}</div>`).join("")+`</div>`;
   }).join("");
   document.getElementById("days").innerHTML=html||`<div class="empty">Продаж пока нет.</div>`;
-  document.getElementById("total").innerHTML=`${fmt(all)} сум<small>прибыль ${SEL==="all"?"за все дни":"за "+SEL.slice(0,5)}${hasExp?` · расходы ${fmt(allExp)} · чистыми ${fmt(allNet)} сум${noExp.length?` (расходы за ${noExp.join(", ")} не указаны)`:""}`:""}</small>`;
+  document.getElementById("total").innerHTML=`<div class="tiles" style="padding:0;border:0"><div class="tile"><div class="v">${fmt(allRev)}</div><div class="k">продажи ${SEL==="all"?"за все дни":"за "+SEL.slice(0,5)}</div></div><div class="tile g"><div class="v">${fmt(all)}</div><div class="k">прибыль</div></div><div class="tile w"><div class="v">${fmt(allExp)}</div><div class="k">расходы${noExp.length?` (нет данных за ${noExp.join(", ")})`:""}</div></div><div class="tile"><div class="v">${fmt(allNet)}</div><div class="k">чистыми</div></div></div>`;
 }
 document.addEventListener("click",e=>{const b=e.target.closest("[data-d]"); if(b){SEL=b.dataset.d; show();}});
 fetch("sales.json?t="+Date.now(),{cache:"no-store"}).then(r=>r.json()).then(j=>{
