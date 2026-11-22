@@ -18,7 +18,8 @@ h1{font-size:22px;margin:0}a{color:var(--accent)}
 .dh{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px;border-bottom:1px solid var(--line)}
 .dh b{font-size:17px}.meta{color:var(--muted);font-size:13px}.sum{font-size:18px;font-weight:700;color:var(--good);text-align:right}
 .row{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:10px 14px;border-top:1px solid var(--line)}
-.row:first-of-type{border-top:0}.nm{font-weight:600}.r{text-align:right;font-weight:600}
+.nm{font-weight:600}.r{text-align:right;font-weight:600}
+.net{font-size:15px;font-weight:700;color:var(--ink);margin-top:6px}
 .note{grid-column:1/-1;font-size:13px;color:var(--warn);background:var(--warn-soft);border-radius:6px;padding:4px 8px;margin-top:4px}
 .empty{padding:20px;color:var(--muted);text-align:center}
 </style>
@@ -36,15 +37,22 @@ const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&g
 const key=d=>d.split(".").reverse().join("");
 fetch("sales.json?t="+Date.now(),{cache:"no-store"}).then(r=>r.json()).then(j=>{
   const days=(j.prodazhi||[]).slice().sort((a,b)=>key(b.data).localeCompare(key(a.data)));
-  let all=0;
+  let all=0, allNet=0, allExp=0, hasExp=false; const noExp=[];
   const html=days.map(d=>{
     const items=d.items.slice().sort((a,b)=>b.kol*b.pribyl-a.kol*a.pribyl);
-    const sum=items.reduce((s,i)=>s+i.kol*i.pribyl,0), kol=items.reduce((s,i)=>s+i.kol,0), kg=items.reduce((s,i)=>s+i.kol*(i.kgm||0),0), rev=items.reduce((s,i)=>s+(i.zakup?i.kol*(i.zakup+i.pribyl):0),0); all+=sum;
-    return `<div class="day"><div class="dh"><div><b>${esc(d.data)}</b><div class="meta">${esc(d.sklad)} · продано ${fmt(kol)} м · ${items.length} позиций</div><div class="meta">Выручка: ${fmt(rev)} сум · вес: ${fmt(kg)} кг (${(kg/1000).toFixed(2).replace(".",",")} т)</div></div><div class="sum">${fmt(sum)} сум<div class="meta">прибыль</div></div></div>`+
+    const rows=items.reduce((s,i)=>s+i.kol*i.pribyl,0), kol=items.reduce((s,i)=>s+i.kol,0), kg=items.reduce((s,i)=>s+i.kol*(i.kgm||0),0);
+    const calcRev=items.reduce((s,i)=>s+(i.zakup?i.kol*(i.zakup+i.pribyl):0),0);
+    const sum=d.foyda??rows, rev=d.savdo??calcRev; all+=sum;
+    const exp=d.rasxod; if(exp!=null){hasExp=true; allExp+=exp; allNet+=sum-exp;} else { allNet+=sum; noExp.push(d.data.slice(0,5)); }
+    const diff=d.foyda!=null && Math.abs(d.foyda-rows)>=1 ? `<div class="note">По строкам выходит ${fmt(rows)} сум, в тетради ${fmt(d.foyda)} — разница из-за неразборчивых цифр</div>`:"";
+    return `<div class="day"><div class="dh"><div><b>${esc(d.data)}</b><div class="meta">${esc(d.sklad)} · продано ${fmt(kol)} м · ${items.length} позиций · ${fmt(kg)} кг</div>
+<div class="meta">Продажи (савдо): <b>${fmt(rev)} сум</b>${d.savdo==null?" (расчёт)":""}</div>
+${exp!=null?`<div class="meta">Расходы: ${fmt(exp)} сум</div>`:""}</div>
+<div class="sum">${fmt(sum)} сум<div class="meta">прибыль</div>${exp!=null?`<div class="net">${fmt(sum-exp)} сум<div class="meta">чистыми</div></div>`:""}</div></div>${diff?`<div class="row">${diff}</div>`:""}`+
       items.map(i=>`<div class="row"><div><span class="nm">${esc(i.razmer)} · ${esc(i.tolsh)} мм</span><div class="meta">${fmt(i.kol)} м × ${fmt(i.pribyl)} сум наценки</div>${i.zakup?`<div class="meta">продано по ${fmt(i.zakup+i.pribyl)} (закупка ${fmt(i.zakup)})</div>`:""}</div><div class="r">${fmt(i.kol*i.pribyl)}${i.kgm?`<div class="meta">${fmt(i.kol*i.kgm)} кг</div>`:""}</div>${i.note?`<div class="note">${esc(i.note)}</div>`:""}</div>`).join("")+`</div>`;
   }).join("");
   document.getElementById("days").innerHTML=html||`<div class="empty">Продаж пока нет.</div>`;
-  document.getElementById("total").innerHTML=`${fmt(all)} сум<small>прибыль за все дни</small>`;
+  document.getElementById("total").innerHTML=`${fmt(all)} сум<small>прибыль за все дни${hasExp?` · расходы ${fmt(allExp)} · чистыми ${fmt(allNet)} сум${noExp.length?` (расходы за ${noExp.join(", ")} не указаны)`:""}`:""}</small>`;
 }).catch(()=>{document.getElementById("days").innerHTML=`<div class="empty">Не удалось загрузить продажи.</div>`;});
 </script>
 </body>
