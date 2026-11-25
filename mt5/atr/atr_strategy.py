@@ -11,6 +11,9 @@
     по истории TP срабатывает раньше SL в 90–95% случаев, но один стоп съедает 10–30 тейков,
     и после спреда ожидание отрицательное (−0.01…−0.07R на сделку). Один вход на ногу.
   * Нет входов 16:30–18:30 Нью-Йорк (ролловер) и в пятницу после 16:00 НЙ.
+  * ФИЛЬТР «тренд + сессия» (с 25.11.2026): покупки — только если вчерашнее дневное закрытие выше SMA50 дневных
+    закрытий, продажи — только если ниже; вход только 03:00–12:00 по Нью-Йорку (Лондон + начало НЙ).
+    На истории 2019–2026 PF вырос с 0.59 до 0.67 (2010–2018: 0.56 → 0.58), сделок вдвое меньше.
 История 2010–2026 (со спредом), PF по XAUUSD/EURUSD/GBPUSD/USDJPY:
   25% ~5 сделок/день, PF 0.75–0.88;  50% ~1.3/день, PF 0.84–0.98;  100%D ~0.3/день, PF 0.91–1.08.
 Это эксперимент для проверки вживую, не прибыльная стратегия.
@@ -55,14 +58,30 @@ def daily_atr(df):
     return float((full.h - full.l).iloc[-5:].mean())
 
 
+def trend_by_day(df, n=50):
+    """+1/-1 для каждого дня: закрытие ПРОШЛОГО дня (Нью-Йорк) выше/ниже SMA(n) прошлых дневных закрытий."""
+    import pandas as pd
+    dc = df["close"].groupby(df.index.date).last()
+    sma = dc.rolling(n).mean()
+    tr = ((dc > sma).astype(int) - (dc < sma).astype(int)).where(sma.notna(), 0).shift(1).fillna(0)
+    return tr.to_dict()
+
+
+def in_session(ts):
+    """Лондон + начало Нью-Йорка: 03:00–12:00 по Нью-Йорку (13:00–22:00 Ташкента зимой)."""
+    m = ts.hour * 60 + ts.minute
+    return 3 * 60 <= m < 12 * 60
+
+
 def blocked(ts):
     m = ts.hour * 60 + ts.minute
     return (16 * 60 + 30 <= m < 18 * 60 + 30) or (ts.weekday() == 4 and m >= 16 * 60)
 
 
 def scan(symbol, df=None):
-    df = fetch(symbol, days=20) if df is None else df
+    df = fetch(symbol, days=100) if df is None else df     # 100 дней: нужны 50 дневных закрытий для тренда
     atr = daily_atr(df)
+    trend = trend_by_day(df)
     hi, lo, cl, idx = df["high"].values, df["low"].values, df["close"].values, df.index
     out = []
     for level, (k, risk) in LEVELS.items():
@@ -72,7 +91,8 @@ def scan(symbol, df=None):
             h = hi if s == 1 else -lo; l = lo if s == 1 else -hi; c = cl * s
             L = l[0]; H = h[0]; used = False; trig = None
             for i in range(len(c)):
-                if not used and c[i] >= L + X * A and not blocked(idx[i]):
+                ok = (not blocked(idx[i])) and in_session(idx[i]) and trend.get(idx[i].date(), 0) == s
+                if not used and c[i] >= L + X * A and ok:
                     used = True; trig = i
                 if l[i] < L:
                     L = l[i]; H = l[i]; used = False; trig = None
@@ -83,7 +103,7 @@ def scan(symbol, df=None):
             if trig is None:
                 continue
             age = (idx[-1] - idx[trig]).total_seconds() / 60
-            if age > WINDOW_MIN or blocked(idx[-1]):
+            if age > WINDOW_MIN or blocked(idx[-1]) or not in_session(idx[-1]):
                 continue
             SL_A, TP_A, P, Pn, n, ev = PARAMS[(symbol, level)]
             if abs(cl[-1] - cl[trig]) > 0.5 * TP_A * A:      # опоздали больше чем на пол-цели — вероятность уже другая
