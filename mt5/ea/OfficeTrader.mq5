@@ -10,9 +10,14 @@
 //|        TP от экстремума: если цена идёт против сделки, TP всех   |
 //|        её ордеров = новый максимум − цель (sell) /               |
 //|        новый минимум + цель (buy). Сделка = символ+направление+SL.|
+//|  1.13: торговые часы как в HorizonX — новые сигналы принимаются  |
+//|        только с SessionStartHour до SessionEndHour (по часовому  |
+//|        поясу SessionGMTOffset, по умолчанию Ташкент 13–22).      |
+//|        Уже выставленные лимитки и открытые позиции работают и вне|
+//|        окна.                                                     |
 //+------------------------------------------------------------------+
 #property copyright "AI Office"
-#property version   "1.12"
+#property version   "1.13"
 #property description "Открывает сделки по сигналам ИИ-офиса. Только демо-счёт."
 #include <Trade/Trade.mqh>
 
@@ -28,6 +33,9 @@ input double MaxDailyLossPct      = 3.0;    // дневной лимит убы�
 input double BreakevenAtR         = 1.0;    // перенос стопа в безубыток при прибыли N×риск (0 = выкл.)
 input int    CloseFridayHour      = 22;     // в пятницу с этого часа (время сервера) закрыть всё (-1 = выкл.)
 input bool   TPFromExtreme        = true;   // если цена идёт против сделки — TP всех её ордеров от нового экстремума
+input int    SessionStartHour     = 13;     // торговые часы: новые сигналы с этого часа (-1 = без ограничения)
+input int    SessionEndHour       = 22;     // ... и до этого часа (не включая)
+input int    SessionGMTOffset     = 5;      // часовой пояс торговых часов, ч от UTC (Ташкент = 5)
 
 CTrade trade;
 const string DONE_FILE = "office_trader_done.txt";
@@ -50,8 +58,9 @@ int OnInit()
    trade.SetExpertMagicNumber(Magic);
    trade.SetDeviationInPoints(50);
    EventSetTimer(1);                          // раз в секунду: TP от экстремума; сигналы — раз в PollSeconds
-   Print("OfficeTrader 1.12 запущен (демо). Сигналы: ", SignalsURL, ". Лесенка до ", MaxOpenOrders,
-         " ордеров, TP от экстремума: ", (TPFromExtreme ? "вкл" : "выкл"));
+   Print("OfficeTrader 1.13 запущен (демо). Сигналы: ", SignalsURL, ". Лесенка до ", MaxOpenOrders,
+         " ордеров, TP от экстремума: ", (TPFromExtreme ? "вкл" : "выкл"),
+         StringFormat(", торговые часы %d–%d (UTC%+d)", SessionStartHour, SessionEndHour, SessionGMTOffset));
    DumpSymbols();
    Manage();
    Poll();
@@ -153,6 +162,7 @@ void ProcessLine(string ln)
    if(CountOpen() >= MaxOpenOrders) return; // попробуем при следующей проверке
    if(DailyLimitHit()) { MarkDone(id); Log(id, symbol, StringFormat("дневной лимит убытка %.1f%% достигнут — сигнал пропущен", MaxDailyLossPct)); return; }
    if(FridayClose())   { MarkDone(id); Log(id, symbol, "пятница вечер — новые сделки не открываются"); return; }
+   if(!InSession())    { MarkDone(id); Log(id, symbol, StringFormat("вне торговых часов %02d:00–%02d:00 (UTC%+d) — пропущен", SessionStartHour, SessionEndHour, SessionGMTOffset)); return; }
 
    bool   buy = (side == "buy");
    double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
@@ -395,6 +405,15 @@ void LadderTP()
       for(int j = 0; j < n; j++) if(keys[j] == base) { alive = true; break; }
       if(!alive) GlobalVariableDel(name);
    }
+}
+
+//--- торговые часы (как StartTime/EndTime в HorizonX)
+bool InSession()
+{
+   if(SessionStartHour < 0 || SessionEndHour < 0 || SessionStartHour == SessionEndHour) return true;
+   MqlDateTime d; TimeToStruct(TimeGMT() + SessionGMTOffset * 3600, d);
+   if(SessionStartHour < SessionEndHour) return d.hour >= SessionStartHour && d.hour < SessionEndHour;
+   return d.hour >= SessionStartHour || d.hour < SessionEndHour;      // окно через полночь
 }
 
 bool FridayClose()

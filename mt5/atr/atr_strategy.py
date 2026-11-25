@@ -7,7 +7,10 @@
     Недельный/месячный уровни не используются: стоп 3–7.5 ATR, а советник закрывает всё в пятницу.
   * Нога вверх: от минимума после последнего отката на A; нога вниз — зеркально.
   * Цена (закрытие 5-мин свечи) прошла от начала ноги 1.0 × A → вход ПО движению (рынок).
-  * Режим 90%+: SL = 3 × A, TP = 0.1–0.3 × A (свой для каждого инструмента и уровня, см. PARAMS) —
+  * С 25.11.2026 (вечер, решение владельца — схема HorizonX): SL = 3 × A, TP = 1 × A (выход при откате на A),
+    лестница 6 ордеров с шагом 0.5A и весами лота 1,1,2,2,3,3 (ladder.py). Правило 90% отменено: P(TP раньше SL)
+    для L1 ≈ 75–80% и примерно равна безубыточности 1/(1+R:R) = 75%; печатается в stderr.
+  * Прежний режим 90%+ (до 25.11.2026 вечер): SL = 3 × A, TP = 0.1–0.3 × A (свой для каждого инструмента и уровня, см. PARAMS) —
     по истории TP срабатывает раньше SL в 90–95% случаев, но один стоп съедает 10–30 тейков,
     и после спреда ожидание отрицательное (−0.01…−0.07R на сделку). Один вход на ногу.
   * Нет входов 16:30–18:30 Нью-Йорк (ролловер) и в пятницу после 16:00 НЙ.
@@ -33,6 +36,7 @@ from atr_context import fetch, probability
 SYMBOLS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"]
 LEVELS = {"50": (0.5, 0.5), "100D": (1.0, 0.5)}   # уровень: (доля ATR, риск %); 25% убран владельцем 25.11.2026 (PF 0.13–0.34)
 X = 1.0
+TP_HORIZON = 1.0      # цель в долях A, как HorizonX (выход при откате на CorrectionRange); прежние TP_A из PARAMS не используются
 # Режим «90%+» (по требованию владельца): SL = 3A, TP подобран по истории 2010–2026 так,
 # чтобы TP срабатывал раньше SL не меньше чем в 90% случаев. (P, P 2024–26, n, ожидание после спреда в R)
 PARAMS = {
@@ -85,6 +89,7 @@ def scan(symbol, df=None):
     df = fetch(symbol, days=100) if df is None else df     # 100 дней: нужны 50 дневных закрытий для тренда
     atr = daily_atr(df)
     trend = trend_by_day(df)
+    ctx = None                                    # контекст для вероятности — только если есть сигнал
     hi, lo, cl, idx = df["high"].values, df["low"].values, df["close"].values, df.index
     out = []
     for level, (k, risk) in LEVELS.items():
@@ -108,12 +113,20 @@ def scan(symbol, df=None):
             age = (idx[-1] - idx[trig]).total_seconds() / 60
             if age > WINDOW_MIN or blocked(idx[-1]) or not in_session(idx[-1]):
                 continue
-            SL_A, TP_A, P, Pn, n, ev = PARAMS[(symbol, level)]
+            SL_A = PARAMS[(symbol, level)][0]
+            TP_A = TP_HORIZON                                 # цель HorizonX: откат 1A (с 25.11.2026 вечер)
             if abs(cl[-1] - cl[trig]) > 0.5 * TP_A * A:      # опоздали больше чем на пол-цели — вероятность уже другая
                 continue
             entry = float(cl[-1])
             sl = entry - s * SL_A * A; tp = entry + s * TP_A * A
-            out.append((symbol, level, risk, side, entry, sl, tp, atr, str(idx[trig])[:16], P, Pn, n, ev, TP_A))
+            try:
+                from atr_context import context
+                ctx = ctx or context(symbol)
+                pr = probability(symbol, side, entry, sl, tp, ctx)
+                P, n, be = pr.get("p"), pr.get("n"), pr.get("breakeven")
+            except Exception:
+                P, n, be = None, None, None
+            out.append((symbol, level, risk, side, entry, sl, tp, atr, str(idx[trig])[:16], P, be, n, None, TP_A))
     return out
 
 
@@ -127,10 +140,9 @@ def main():
                 base = now.strftime("%y%m%d-%H%M") + f"-{symbol}"      # короткий id: в MT5 комментарий ≤ 31 символа
                 # 6 ордеров лестницей (L1 по рынку, L2–L6 лимитки), общий риск сделки делится на 6
                 for row in ladder(base, symbol, side, entry, sl, tp, risk, "market",
-                                  f"ATR90 {LABEL[level]}", now=now.timestamp(), id_suffix=SUFFIX[level]):
+                                  f"ATR HX {LABEL[level]}", now=now.timestamp(), id_suffix=SUFFIX[level]):
                     rows.append({"row": row, "level": level, "trigger_bar_ny": when, "atr": atr,
-                                 "p_L1": P, "p_2024_2026_L1": Pn, "n": n,
-                                 "expected_R_after_spread_L1": ev})
+                                 "p_L1": P, "breakeven_L1": Pn, "n": n})
         except Exception as ex:
             print(f"# {sym}: ошибка {type(ex).__name__}: {ex}", file=sys.stderr)
     for r in rows:
