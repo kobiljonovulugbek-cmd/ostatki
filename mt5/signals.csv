@@ -4,3 +4,4 @@ id;symbol;side;type;entry;sl;tp;risk;expires_utc;comment
 20261124-1205-XAUUSD;XAUUSD;sell;limit;3658;3698;3596;1;1795536319;Sell rally 3651-3660 H4 lower highs
 20261124-1804-XAUUSD;XAUUSD;sell;limit;3592;3628;3506;1;1795557897;Retest broken 3593 support H4 down
 20261125-0904-XAUUSD;XAUUSD;sell;limit;3582;3618;3515;1;1795611300;Sell retest 3583-3600 broken sup H4 down
+20261125-1307-XAUUSD;XAUUSD;sell;market;3517.22;3705.04;3507.83;0.5;1795613245;Manual owner trend down P95 SL1.5ATR
