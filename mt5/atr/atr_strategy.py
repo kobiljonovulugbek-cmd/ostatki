@@ -19,6 +19,8 @@
 Это эксперимент для проверки вживую, не прибыльная стратегия.
 
 Запуск:  python mt5/atr/atr_strategy.py            -> строки для mt5/signals.csv (или пусто)
+Каждая сделка = 6 ордеров лестницей (ladder.py): L1 по рынку, L2–L6 лимитки против движения с шагом
+1/10 расстояния до стопа; стоп и цель общие; риск сделки делится на 6. id: …-СИМВОЛ-S|B-L1…L6-ATR50|ATR100D.
 Скрипт не хранит состояние: сигнал выдаётся, только если вход сработал за последние WINDOW минут
 (запуск раз в час -> окно 65 минут), поэтому одна нога не даст повторных сигналов.
 """
@@ -115,18 +117,19 @@ def scan(symbol, df=None):
 
 
 def main():
+    from ladder import build as ladder
     now = datetime.now(timezone.utc)
     rows = []
     for sym in SYMBOLS:
         try:
             for symbol, level, risk, side, entry, sl, tp, atr, when, P, Pn, n, ev, TP_A in scan(sym):
-                d = DIGITS.get(symbol, 5)
-                sid = now.strftime("%Y%m%d-%H%M") + f"-{symbol}-{side[0].upper()}-ATR{level}"
-                exp = int(now.timestamp()) + 20 * 60
-                row = f"{sid};{symbol};{side};market;{entry:.{d}f};{sl:.{d}f};{tp:.{d}f};{risk};{exp};ATR90 {LABEL[level]} SL3 TP{TP_A}"
-                rows.append({"row": row, "level": level, "trigger_bar_ny": when, "atr": atr,
-                             "p": P, "p_2024_2026": Pn, "n": n, "breakeven": round(100 * 3.0 / (3.0 + TP_A), 1),
-                             "expected_R_after_spread": ev})
+                base = now.strftime("%Y%m%d-%H%M") + f"-{symbol}-{side[0].upper()}"
+                # 6 ордеров лестницей (L1 по рынку, L2–L6 лимитки), общий риск сделки делится на 6
+                for row in ladder(base, symbol, side, entry, sl, tp, risk, "market",
+                                  f"ATR90 {LABEL[level]}", now=now.timestamp(), id_suffix=f"-ATR{level}"):
+                    rows.append({"row": row, "level": level, "trigger_bar_ny": when, "atr": atr,
+                                 "p_L1": P, "p_2024_2026_L1": Pn, "n": n,
+                                 "expected_R_after_spread_L1": ev})
         except Exception as ex:
             print(f"# {sym}: ошибка {type(ex).__name__}: {ex}", file=sys.stderr)
     for r in rows:
