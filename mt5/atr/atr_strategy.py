@@ -20,7 +20,7 @@
 
 Запуск:  python mt5/atr/atr_strategy.py            -> строки для mt5/signals.csv (или пусто)
 Каждая сделка = 6 ордеров лестницей (ladder.py): L1 по рынку, L2–L6 лимитки против движения с шагом
-1/10 расстояния до стопа; стоп и цель общие; риск сделки делится на 6. id: …-СИМВОЛ-S|B-L1…L6-ATR50|ATR100D.
+1/10 расстояния до стопа; стоп и цель общие; риск сделки делится на 6. id: ГГММДД-ЧЧММ-СИМВОЛ-L1…L6-A50|A100 (≤ 27 символов: в MT5 комментарий «AIO <id>» ≤ 31).
 Скрипт не хранит состояние: сигнал выдаётся, только если вход сработал за последние WINDOW минут
 (запуск раз в час -> окно 65 минут), поэтому одна нога не даст повторных сигналов.
 """
@@ -46,6 +46,7 @@ PARAMS = {
     ("XAUUSD", "100D"): (3.0, 0.20, 91.8, 92.0, 1662, -0.021),
 }
 LABEL = {"25": "25%", "50": "50%", "100D": "100%D"}
+SUFFIX = {"25": "-A25", "50": "-A50", "100D": "-A100"}   # окончание id ордера (уровень ATR)
 K = 0.5               # для обратной совместимости
 WINDOW_MIN = 65
 DIGITS = {"XAUUSD": 2, "USDJPY": 3}
@@ -123,10 +124,10 @@ def main():
     for sym in SYMBOLS:
         try:
             for symbol, level, risk, side, entry, sl, tp, atr, when, P, Pn, n, ev, TP_A in scan(sym):
-                base = now.strftime("%Y%m%d-%H%M") + f"-{symbol}-{side[0].upper()}"
+                base = now.strftime("%y%m%d-%H%M") + f"-{symbol}"      # короткий id: в MT5 комментарий ≤ 31 символа
                 # 6 ордеров лестницей (L1 по рынку, L2–L6 лимитки), общий риск сделки делится на 6
                 for row in ladder(base, symbol, side, entry, sl, tp, risk, "market",
-                                  f"ATR90 {LABEL[level]}", now=now.timestamp(), id_suffix=f"-ATR{level}"):
+                                  f"ATR90 {LABEL[level]}", now=now.timestamp(), id_suffix=SUFFIX[level]):
                     rows.append({"row": row, "level": level, "trigger_bar_ny": when, "atr": atr,
                                  "p_L1": P, "p_2024_2026_L1": Pn, "n": n,
                                  "expected_R_after_spread_L1": ev})
