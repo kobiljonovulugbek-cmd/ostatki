@@ -14,11 +14,11 @@ from numba import njit
 import backtest as B
 
 PAIRS = B.PAIRS + ["USDJPY", "XAUUSD"]
-SS = [0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0]
-RRS = [1.0, 1.5, 2.0, 2.5, 3.0]
+SS = [0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 1.5, 2.0]
+RRS = [0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 2.5, 3.0]
 EDGES = np.array([0.5, 1.0, 1.5, 2.0])          # корзины растяжения
 LEG_K = 0.5
-MAXBARS = 864
+MAXBARS = 1440
 
 
 @njit(cache=True)

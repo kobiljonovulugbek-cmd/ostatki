@@ -7,7 +7,9 @@
     Недельный/месячный уровни не используются: стоп 3–7.5 ATR, а советник закрывает всё в пятницу.
   * Нога вверх: от минимума после последнего отката на A; нога вниз — зеркально.
   * Цена (закрытие 5-мин свечи) прошла от начала ноги 1.0 × A → вход ПО движению (рынок).
-  * SL = 1.0 × A, TP = 1.5 × A (R:R 1.5). Один вход на ногу.
+  * Режим 90%+: SL = 3 × A, TP = 0.1–0.3 × A (свой для каждого инструмента и уровня, см. PARAMS) —
+    по истории TP срабатывает раньше SL в 90–95% случаев, но один стоп съедает 10–30 тейков,
+    и после спреда ожидание отрицательное (−0.01…−0.07R на сделку). Один вход на ногу.
   * Нет входов 16:30–18:30 Нью-Йорк (ролловер) и в пятницу после 16:00 НЙ.
 История 2010–2026 (со спредом), PF по XAUUSD/EURUSD/GBPUSD/USDJPY:
   25% ~5 сделок/день, PF 0.75–0.88;  50% ~1.3/день, PF 0.84–0.98;  100%D ~0.3/день, PF 0.91–1.08.
@@ -25,9 +27,20 @@ from atr_context import fetch, probability
 
 SYMBOLS = ["XAUUSD", "EURUSD", "GBPUSD", "USDJPY"]
 LEVELS = {"25": (0.25, 0.25), "50": (0.5, 0.5), "100D": (1.0, 0.5)}   # уровень: (доля ATR, риск %)
-X, SL_A, TP_A = 1.0, 1.0, 1.5
+X = 1.0
+# Режим «90%+» (по требованию владельца): SL = 3A, TP подобран по истории 2010–2026 так,
+# чтобы TP срабатывал раньше SL не меньше чем в 90% случаев. (P, P 2024–26, n, ожидание после спреда в R)
+PARAMS = {
+    ("EURUSD", "25"): (3.0, 0.15, 90.7, 90.6, 25257, -0.060), ("EURUSD", "50"): (3.0, 0.20, 91.5, 92.5, 6163, -0.028),
+    ("EURUSD", "100D"): (3.0, 0.15, 93.6, 91.5, 1695, -0.015),
+    ("GBPUSD", "25"): (3.0, 0.15, 90.9, 91.5, 24897, -0.064), ("GBPUSD", "50"): (3.0, 0.10, 94.6, 94.9, 6540, -0.031),
+    ("GBPUSD", "100D"): (3.0, 0.15, 94.3, 93.8, 1646, -0.015),
+    ("USDJPY", "25"): (3.0, 0.10, 91.1, 90.8, 22016, -0.073), ("USDJPY", "50"): (3.0, 0.15, 92.6, 92.8, 5893, -0.031),
+    ("USDJPY", "100D"): (3.0, 0.30, 90.3, 89.5, 1410, -0.008),
+    ("XAUUSD", "25"): (3.0, 0.10, 91.2, 91.8, 25724, -0.069), ("XAUUSD", "50"): (3.0, 0.15, 91.4, 91.8, 6485, -0.045),
+    ("XAUUSD", "100D"): (3.0, 0.20, 91.8, 92.0, 1662, -0.021),
+}
 LABEL = {"25": "25%", "50": "50%", "100D": "100%D"}
-MAX_DRIFT_A = 0.5     # если цена ушла от точки срабатывания больше чем на 0.5A — вход опоздал, пропускаем
 K = 0.5               # для обратной совместимости
 WINDOW_MIN = 65
 DIGITS = {"XAUUSD": 2, "USDJPY": 3}
@@ -72,11 +85,12 @@ def scan(symbol, df=None):
             age = (idx[-1] - idx[trig]).total_seconds() / 60
             if age > WINDOW_MIN or blocked(idx[-1]):
                 continue
-            if abs(cl[-1] - cl[trig]) > MAX_DRIFT_A * A:
+            SL_A, TP_A, P, Pn, n, ev = PARAMS[(symbol, level)]
+            if abs(cl[-1] - cl[trig]) > 0.5 * TP_A * A:      # опоздали больше чем на пол-цели — вероятность уже другая
                 continue
             entry = float(cl[-1])
             sl = entry - s * SL_A * A; tp = entry + s * TP_A * A
-            out.append((symbol, level, risk, side, entry, sl, tp, atr, str(idx[trig])[:16]))
+            out.append((symbol, level, risk, side, entry, sl, tp, atr, str(idx[trig])[:16], P, Pn, n, ev, TP_A))
     return out
 
 
@@ -85,14 +99,14 @@ def main():
     rows = []
     for sym in SYMBOLS:
         try:
-            for symbol, level, risk, side, entry, sl, tp, atr, when in scan(sym):
+            for symbol, level, risk, side, entry, sl, tp, atr, when, P, Pn, n, ev, TP_A in scan(sym):
                 d = DIGITS.get(symbol, 5)
-                p = probability(symbol, side, entry, sl, tp)
                 sid = now.strftime("%Y%m%d-%H%M") + f"-{symbol}-{side[0].upper()}-ATR{level}"
                 exp = int(now.timestamp()) + 20 * 60
-                row = f"{sid};{symbol};{side};market;{entry:.{d}f};{sl:.{d}f};{tp:.{d}f};{risk};{exp};ATR-test {LABEL[level]} X1 SL1 TP1.5"
+                row = f"{sid};{symbol};{side};market;{entry:.{d}f};{sl:.{d}f};{tp:.{d}f};{risk};{exp};ATR90 {LABEL[level]} SL3 TP{TP_A}"
                 rows.append({"row": row, "level": level, "trigger_bar_ny": when, "atr": atr,
-                             "p": p.get("p"), "breakeven": p.get("breakeven"), "n": p.get("n")})
+                             "p": P, "p_2024_2026": Pn, "n": n, "breakeven": round(100 * 3.0 / (3.0 + TP_A), 1),
+                             "expected_R_after_spread": ev})
         except Exception as ex:
             print(f"# {sym}: ошибка {type(ex).__name__}: {ex}", file=sys.stderr)
     for r in rows:
