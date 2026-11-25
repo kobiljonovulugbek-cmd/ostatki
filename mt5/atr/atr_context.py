@@ -92,10 +92,10 @@ def probability(symbol, side, entry, sl, tp, ctx=None):
     b = bucket(ext)
     n_b, p_b = cell["all"]["by_ext"][b]
     p_all, p_new = cell["all"]["p"], cell["new"]["p"]
-    be = round(100 / (1 + rr), 1)
+    be = round(100 / (1 + R), 1)        # безубыточность для той же ячейки таблицы (R:R из сетки)
     p_use = p_b if n_b >= 300 else p_all
     edge = round(p_use - be, 1)
-    if abs(edge) < 2:
+    if abs(edge) < 3:
         verdict = "на уровне безубыточности — исторического перевеса нет"
     elif edge > 0:
         verdict = f"выше безубыточности на {edge} п.п."
@@ -124,7 +124,7 @@ def fmt_prob(r):
     w = ("; ⚠️ " + "; ".join(r["warnings"])) if r["warnings"] else ""
     return (f"- {r['symbol']} {r['side']} {r['entry']} SL {r['sl']} TP {r['tp']}: SL = {r['sl_atr']} ATR, R:R {r['rr']}, "
             f"растяжение {r['ext']} ATR ({r['ext_bucket']}) → **P(TP раньше SL) ≈ {r['p']}%** "
-            f"(все годы {r['p_all_years']}%, 2024–26 {r['p_2024_2026']}%, n={r['n']}); безубыточность {r['breakeven']}% — {r['verdict']}{w}")
+            f"(все годы {r['p_all_years']}%, 2024–26 {r['p_2024_2026']}%, n={r['n']}); безубыточность при R:R {r['grid'][1]} — {r['breakeven']}% — {r['verdict']}{w}")
 
 
 def main(argv):
