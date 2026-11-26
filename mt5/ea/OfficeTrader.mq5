@@ -20,9 +20,14 @@
 //|        рынку «просрочивался» сразу). Когда все позиции сделки    |
 //|        закрыты, её неисполненные лимитки снимаются (раньше они   |
 //|        наливались после TP и уходили в стоп).                    |
+//|  1.15: золото тоже торгуется. Если лот ордера меньше минимального,|
+//|        открывается минимальный лот, когда его риск не больше     |
+//|        MinLotMaxOrderRiskPct, а риск всей сделки (все её ордера) |
+//|        не больше MinLotMaxDealRiskPct. Раньше такие ордера       |
+//|        пропускались (у XAUUSD — L1–L4).                          |
 //+------------------------------------------------------------------+
 #property copyright "AI Office"
-#property version   "1.14"
+#property version   "1.15"
 #property description "Открывает сделки по сигналам ИИ-офиса. Только демо-счёт."
 #include <Trade/Trade.mqh>
 
@@ -42,6 +47,8 @@ input int    SessionStartHour     = 13;     // торговые часы: нов
 input int    SessionEndHour       = 22;     // ... и до этого часа (не включая)
 input int    SessionGMTOffset     = 5;      // часовой пояс торговых часов, ч от UTC (Ташкент = 5)
 input bool   CancelRestAfterClose = true;   // все позиции сделки закрыты -> снять её оставшиеся лимитки
+input double MinLotMaxOrderRiskPct = 0.5;   // лот < минимального: открыть мин. лот, если его риск не больше, % (0 = пропускать)
+input double MinLotMaxDealRiskPct  = 1.5;   // ... и если риск всей сделки (все её ордера) не больше, %
 
 CTrade trade;
 const string DONE_FILE = "office_trader_done.txt";
@@ -64,7 +71,7 @@ int OnInit()
    trade.SetExpertMagicNumber(Magic);
    trade.SetDeviationInPoints(50);
    EventSetTimer(1);                          // раз в секунду: TP от экстремума; сигналы — раз в PollSeconds
-   Print("OfficeTrader 1.14 запущен (демо). Сигналы: ", SignalsURL, ". Лесенка до ", MaxOpenOrders,
+   Print("OfficeTrader 1.15 запущен (демо). Сигналы: ", SignalsURL, ". Лесенка до ", MaxOpenOrders,
          " ордеров, TP от экстремума: ", (TPFromExtreme ? "вкл" : "выкл"),
          StringFormat(", торговые часы %d–%d (UTC%+d)", SessionStartHour, SessionEndHour, SessionGMTOffset));
    DumpSymbols();
@@ -188,7 +195,26 @@ void ProcessLine(string ln)
    double r = (risk > 0 ? risk : RiskPercent);
    r = MathMin(r, MathMin(RiskPercent, 2.0));
    double lots = CalcLots(symbol, MathAbs(ref - sl), r);
-   if(lots <= 0) { MarkDone(id); Log(id, symbol, "минимальный лот даёт риск больше допустимого — пропущен"); return; }
+   string minNote = "";
+   if(lots <= 0)
+   {
+      double mn = SymbolInfoDouble(symbol, SYMBOL_VOLUME_MIN);
+      double bal = AccountInfoDouble(ACCOUNT_BALANCE);
+      double mnRisk = (bal > 0) ? RiskMoney(symbol, mn, MathAbs(ref - sl)) / bal * 100.0 : 0;
+      double dealRisk = (bal > 0) ? DealRiskMoney(id) / bal * 100.0 : 0;
+      if(mn > 0 && mnRisk > 0 && MinLotMaxOrderRiskPct > 0 && mnRisk <= MinLotMaxOrderRiskPct && dealRisk + mnRisk <= MinLotMaxDealRiskPct)
+      {
+         lots = mn;
+         minNote = StringFormat(" (минимальный лот: риск %.3f%% вместо %.3f%%, сделка всего %.2f%%)", mnRisk, r, dealRisk + mnRisk);
+      }
+      else
+      {
+         MarkDone(id);
+         Log(id, symbol, StringFormat("минимальный лот %.2f даёт риск %.3f%% (сделка %.2f%%) больше допустимого %.2f%%/%.2f%% — пропущен",
+             mn, mnRisk, dealRisk + mnRisk, MinLotMaxOrderRiskPct, MinLotMaxDealRiskPct));
+         return;
+      }
+   }
 
    sl = NormalizeDouble(sl, digits);
    tp = NormalizeDouble(tp, digits);
@@ -216,7 +242,7 @@ void ProcessLine(string ln)
    {
       MarkDone(id);
       Log(id, symbol, StringFormat("ОТКРЫТО %s %s %.2f лот, вход %.*f, SL %.*f, TP %.*f, риск %.3f%%",
-          side, type, lots, digits, (type == "market" ? trade.ResultPrice() : entry), digits, sl, digits, tp, r));
+          side, type, lots, digits, (type == "market" ? trade.ResultPrice() : entry), digits, sl, digits, tp, r) + minNote);
    }
    else if(rc == TRADE_RETCODE_MARKET_CLOSED) Log(id, symbol, "рынок закрыт — повторю позже");
    else { MarkDone(id); Log(id, symbol, StringFormat("ошибка %u: %s", rc, trade.ResultRetcodeDescription())); }
@@ -240,6 +266,43 @@ double CalcLots(string s, double dist, double riskPct)
    if(lots > mx) lots = mx;
    int vd = (int)MathMax(0, MathCeil(-MathLog10(step)));
    return NormalizeDouble(lots, vd);
+}
+
+//--- риск в деньгах: объём × расстояние до стопа
+double RiskMoney(string s, double vol, double dist)
+{
+   double tv = SymbolInfoDouble(s, SYMBOL_TRADE_TICK_VALUE_LOSS);
+   if(tv <= 0) tv = SymbolInfoDouble(s, SYMBOL_TRADE_TICK_VALUE);
+   double ts = SymbolInfoDouble(s, SYMBOL_TRADE_TICK_SIZE);
+   if(tv <= 0 || ts <= 0) return 0;
+   return vol * dist / ts * tv;
+}
+
+//--- риск уже открытых позиций и выставленных ордеров той же сделки (id без -L1…-L9)
+double DealRiskMoney(string id)
+{
+   string base = DealBase(id);
+   if(base == id) return 0;
+   double sum = 0;
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong t = PositionGetTicket(i);
+      if(t == 0 || PositionGetInteger(POSITION_MAGIC) != Magic) continue;
+      string c = PositionGetString(POSITION_COMMENT); StringReplace(c, "AIO ", "");
+      if(DealBase(c) != base) continue;
+      double sl = PositionGetDouble(POSITION_SL);
+      if(sl > 0) sum += RiskMoney(PositionGetString(POSITION_SYMBOL), PositionGetDouble(POSITION_VOLUME), MathAbs(PositionGetDouble(POSITION_PRICE_OPEN) - sl));
+   }
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong o = OrderGetTicket(i);
+      if(o == 0 || OrderGetInteger(ORDER_MAGIC) != Magic) continue;
+      string c = OrderGetString(ORDER_COMMENT); StringReplace(c, "AIO ", "");
+      if(DealBase(c) != base) continue;
+      double sl = OrderGetDouble(ORDER_SL);
+      if(sl > 0) sum += RiskMoney(OrderGetString(ORDER_SYMBOL), OrderGetDouble(ORDER_VOLUME_CURRENT), MathAbs(OrderGetDouble(ORDER_PRICE_OPEN) - sl));
+   }
+   return sum;
 }
 
 int CountOpen()
