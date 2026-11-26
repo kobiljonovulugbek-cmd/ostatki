@@ -15,9 +15,14 @@
 //|        поясу SessionGMTOffset, по умолчанию Ташкент 13–22).      |
 //|        Уже выставленные лимитки и открытые позиции работают и вне|
 //|        окна.                                                     |
+//|  1.14: время «сейчас по UTC» берётся по котировкам сервера, а не |
+//|        по часам компьютера (часы ПК спешили ~15 мин, и L1 по     |
+//|        рынку «просрочивался» сразу). Когда все позиции сделки    |
+//|        закрыты, её неисполненные лимитки снимаются (раньше они   |
+//|        наливались после TP и уходили в стоп).                    |
 //+------------------------------------------------------------------+
 #property copyright "AI Office"
-#property version   "1.13"
+#property version   "1.14"
 #property description "Открывает сделки по сигналам ИИ-офиса. Только демо-счёт."
 #include <Trade/Trade.mqh>
 
@@ -36,6 +41,7 @@ input bool   TPFromExtreme        = true;   // если цена идёт про
 input int    SessionStartHour     = 13;     // торговые часы: новые сигналы с этого часа (-1 = без ограничения)
 input int    SessionEndHour       = 22;     // ... и до этого часа (не включая)
 input int    SessionGMTOffset     = 5;      // часовой пояс торговых часов, ч от UTC (Ташкент = 5)
+input bool   CancelRestAfterClose = true;   // все позиции сделки закрыты -> снять её оставшиеся лимитки
 
 CTrade trade;
 const string DONE_FILE = "office_trader_done.txt";
@@ -58,10 +64,11 @@ int OnInit()
    trade.SetExpertMagicNumber(Magic);
    trade.SetDeviationInPoints(50);
    EventSetTimer(1);                          // раз в секунду: TP от экстремума; сигналы — раз в PollSeconds
-   Print("OfficeTrader 1.13 запущен (демо). Сигналы: ", SignalsURL, ". Лесенка до ", MaxOpenOrders,
+   Print("OfficeTrader 1.14 запущен (демо). Сигналы: ", SignalsURL, ". Лесенка до ", MaxOpenOrders,
          " ордеров, TP от экстремума: ", (TPFromExtreme ? "вкл" : "выкл"),
          StringFormat(", торговые часы %d–%d (UTC%+d)", SessionStartHour, SessionEndHour, SessionGMTOffset));
    DumpSymbols();
+   ClockCheck();
    Manage();
    Poll();
    lastPoll = TimeLocal();
@@ -155,7 +162,7 @@ void ProcessLine(string ln)
    if(id == "" || IsDone(id)) return;
 
    string symbol = Resolve(sym);
-   if(expUtc > 0 && (long)TimeGMT() > expUtc) { MarkDone(id); Log(id, symbol, "сигнал просрочен — пропущен"); return; }
+   if(expUtc > 0 && (long)NowUTC() > expUtc) { MarkDone(id); Log(id, symbol, "сигнал просрочен — пропущен"); return; }
    if(side != "buy" && side != "sell") { MarkDone(id); Log(id, symbol, "неизвестное направление: " + side); return; }
    if(type != "market" && type != "limit" && type != "stop") { MarkDone(id); Log(id, symbol, "неизвестный тип: " + type); return; }
    if(!SymbolSelect(symbol, true)) { MarkDone(id); Log(id, symbol, "символ не найден у брокера (проверьте SymbolSuffix/SymbolMap)"); return; }
@@ -194,7 +201,11 @@ void ProcessLine(string ln)
       entry = NormalizeDouble(entry, digits);
       datetime exp = 0;
       ENUM_ORDER_TYPE_TIME tt = ORDER_TIME_GTC;
-      if(expUtc > 0) { exp = (datetime)(expUtc + (long)(TimeTradeServer() - TimeGMT())); tt = ORDER_TIME_SPECIFIED; }
+      if(expUtc > 0)
+      {
+         exp = (datetime)(expUtc + ServerOffset()); tt = ORDER_TIME_SPECIFIED;
+         if(TimeCurrent() > 0 && exp <= TimeCurrent() + 60) { MarkDone(id); Log(id, symbol, "сигнал просрочен — пропущен"); return; }
+      }
       if(type == "limit")
          ok = buy ? trade.BuyLimit(lots, entry, symbol, sl, tp, tt, exp, cmt) : trade.SellLimit(lots, entry, symbol, sl, tp, tt, exp, cmt);
       else
@@ -411,7 +422,7 @@ void LadderTP()
 bool InSession()
 {
    if(SessionStartHour < 0 || SessionEndHour < 0 || SessionStartHour == SessionEndHour) return true;
-   MqlDateTime d; TimeToStruct(TimeGMT() + SessionGMTOffset * 3600, d);
+   MqlDateTime d; TimeToStruct(NowUTC() + SessionGMTOffset * 3600, d);
    if(SessionStartHour < SessionEndHour) return d.hour >= SessionStartHour && d.hour < SessionEndHour;
    return d.hour >= SessionStartHour || d.hour < SessionEndHour;      // окно через полночь
 }
@@ -489,6 +500,70 @@ void OnTradeTransaction(const MqlTradeTransaction &trans, const MqlTradeRequest 
       dg, openPx, dg, closePx, profit, swap, comm, why, AccountInfoDouble(ACCOUNT_BALANCE)));
    FileClose(h);
    Log(sigId, sym, StringFormat("ЗАКРЫТО по %s: %+.2f", why, profit + swap + comm));
+   if(CancelRestAfterClose) CancelRest(sigId, sym, (ulong)posId);
+}
+
+//--- id сделки = id ордера без части «-L1…-L9»: 261126-1311-XAUUSD-L3-A50 -> 261126-1311-XAUUSD-A50
+string DealBase(string id)
+{
+   int n = StringLen(id);
+   for(int i = 0; i + 2 < n; i++)
+      if(StringGetCharacter(id, i) == '-' && StringGetCharacter(id, i + 1) == 'L')
+      {
+         ushort c = StringGetCharacter(id, i + 2);
+         if(c >= '1' && c <= '9' && (i + 3 == n || StringGetCharacter(id, i + 3) == '-'))
+            return StringSubstr(id, 0, i) + StringSubstr(id, i + 3);
+      }
+   return id;
+}
+
+//--- все позиции сделки закрыты -> снять её неисполненные лимитки (иначе они нальются позже без сделки)
+void CancelRest(string sigId, string sym, ulong closedPos)
+{
+   if(sigId == "") return;
+   string base = DealBase(sigId);
+   if(base == sigId) return;                                   // не лесенка
+   for(int i = PositionsTotal() - 1; i >= 0; i--)
+   {
+      ulong t = PositionGetTicket(i);
+      if(t == 0 || t == closedPos || PositionGetInteger(POSITION_MAGIC) != Magic) continue;
+      string c = PositionGetString(POSITION_COMMENT); StringReplace(c, "AIO ", "");
+      if(DealBase(c) == base) return;                          // сделка ещё жива
+   }
+   int removed = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+   {
+      ulong o = OrderGetTicket(i);
+      if(o == 0 || OrderGetInteger(ORDER_MAGIC) != Magic) continue;
+      string c = OrderGetString(ORDER_COMMENT); StringReplace(c, "AIO ", "");
+      if(DealBase(c) == base && trade.OrderDelete(o)) removed++;
+   }
+   if(removed > 0) Log(base, sym, StringFormat("сделка закрыта — снято неисполненных лимиток: %d", removed));
+}
+
+//--- смещение времени сервера от UTC (кратно 15 мин; часы ПК сокращаются)
+long ServerOffset()
+{
+   long off = (long)(TimeTradeServer() - TimeGMT());
+   return (long)MathRound(off / 900.0) * 900;
+}
+
+//--- «сейчас» по UTC по котировкам сервера, а не по часам компьютера
+datetime NowUTC()
+{
+   datetime srv = TimeCurrent();
+   if(srv <= 0) return TimeGMT();
+   datetime u = (datetime)((long)srv - ServerOffset());
+   return u;
+}
+
+void ClockCheck()
+{
+   datetime srv = TimeCurrent();
+   if(srv <= 0) return;
+   long drift = (long)(TimeTradeServer() - srv);              // > 0: часы ПК спешат
+   if(MathAbs(drift) >= 120 && MathAbs(drift) <= 7200)      // больше 2 ч — скорее нет свежих котировок
+      Log("-", "-", StringFormat("часы компьютера расходятся с сервером на %+d мин — советник считает время по серверу; лучше синхронизировать время Windows", (int)(drift / 60)));
 }
 
 //--- список подходящих символов брокера (для настройки имён)
